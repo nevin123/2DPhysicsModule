@@ -34,3 +34,7 @@ sysinfo.txt
 # Builds
 *.apk
 *.unitypackage
+
+2DCustomPhysics/Logs/
+
+2DCustomPhysics/.vscode/
