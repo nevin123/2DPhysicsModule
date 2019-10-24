@@ -31,6 +31,8 @@ public class CustomPhysicsObject : MonoBehaviour
     protected Vector2 _velocity;
 	protected CollisionInfo _collisionInfo;
 
+	public BoxCollider2D platform;
+
     // Monobehaviour Methods
     private void Awake() {
         PhysicsMaterial2D fmat = new PhysicsMaterial2D("Smooth");
@@ -62,10 +64,10 @@ public class CustomPhysicsObject : MonoBehaviour
 		Physics2D.queriesHitTriggers = false;
         _rb.gravityScale = 0;
 
-        Debug.Log(_maxSlopeAngle);
+		Physics2D.IgnoreCollision(_col, platform);
     }
 
-    private void FixedUpdate() {
+	private void FixedUpdate() {
 		_collisionInfo.Reset();
 		transform.rotation = Quaternion.identity;
 
@@ -76,13 +78,22 @@ public class CustomPhysicsObject : MonoBehaviour
 
         Vector2 deltaVelocity = _velocity * Time.deltaTime;
 
-        if(_velocity.y > 0) CheckVerticalCollision(ref deltaVelocity, false);
+        //if(_velocity.y > 0) CheckVerticalCollision(ref deltaVelocity, false);
         if(_velocity.y <= 0) CheckVerticalCollision(ref deltaVelocity, true);
+
         CheckHorizontalCollision(ref deltaVelocity, true);
         CheckHorizontalCollision(ref deltaVelocity, false);
-        
-        // rb.MovePosition(rb.position + deltaVelocity);
-        _rb.velocity = deltaVelocity / Time.fixedDeltaTime;
+
+		if (_collisionInfo.collidingBelow)
+		{
+			float velX = deltaVelocity.x;
+			Vector2 velocityAlongGround = _collisionInfo.groundNormal * velX;
+			deltaVelocity.x = 0;
+			deltaVelocity += velocityAlongGround;
+		}
+
+		// rb.MovePosition(rb.position + deltaVelocity);
+		_rb.velocity = deltaVelocity / Time.fixedDeltaTime;
     }
 
 	// Private Methods
@@ -164,11 +175,6 @@ public class CustomPhysicsObject : MonoBehaviour
 
 				Vector2 groundNormal = new Vector2(groundHit.normal.y, -groundHit.normal.x);
 				_collisionInfo.groundNormal = groundNormal;
-				//Debug.DrawRay(transform.position, groundNormal, Color.cyan);
-				//float velX = refVelocity.x;
-				//refVelocity.x = 0;
-				//refVelocity += groundNormal * velX;
-
 				_collisionInfo.collidingBelow = true;
 
 				return;
@@ -208,6 +214,7 @@ public class CustomPhysicsObject : MonoBehaviour
 					}
 				}
 
+				// Check if side rays hit a slope less steep than the max angle
 				if(bottom && Vector2.Angle(Vector2.up, hit.normal) < _maxSlopeAngle)
 				{
 					float currentSlopeHeight = Mathf.Abs(Mathf.Tan(Vector2.Angle(hit.normal, Vector2.up) * Mathf.Deg2Rad) * offsetFromCenter);
@@ -217,14 +224,17 @@ public class CustomPhysicsObject : MonoBehaviour
 				{
 					hit.distance = hit.distance - maxPossibleSlopeHeight - _skinWidth;
 				}
-
+				if (bottom && hit.distance < maxPossibleSlopeHeight - 2 * _skinWidth && Vector2.Angle(Vector2.up, hit.normal) > _maxSlopeAngle) continue;
 				if (hit.distance > Mathf.Abs(refVelocity.y)) continue;
 
+				// Limit the velocity to the hitdistance
 				refVelocity.y = bottom ? Mathf.Clamp(refVelocity.y, -(hit.distance), float.MaxValue) :
                                          Mathf.Clamp(refVelocity.y, float.MinValue, hit.distance);
+				
 				if (bottom)
 				{
-					_collisionInfo.groundNormal = new Vector2(hit.normal.y, -hit.normal.x);
+					Vector2 groundNormal = new Vector2(hit.normal.y, -hit.normal.x);
+					_collisionInfo.groundNormal = groundNormal;
 					_velocity.y = 0;
 				}
 
@@ -248,10 +258,6 @@ public class CustomPhysicsObject : MonoBehaviour
 
 				Vector2 groundNormal = new Vector2(groundHit.normal.y, -groundHit.normal.x);
 				_collisionInfo.groundNormal = groundNormal;
-				//Debug.DrawRay(transform.position, groundNormal, Color.cyan);
-				//float velX = refVelocity.x;
-				//refVelocity.x = 0;
-				//refVelocity += groundNormal * velX;
 
 				_collisionInfo.collidingBelow = true;
 
