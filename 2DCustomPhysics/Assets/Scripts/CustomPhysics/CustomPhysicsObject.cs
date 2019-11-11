@@ -31,8 +31,6 @@ public class CustomPhysicsObject : MonoBehaviour
     protected Vector2 _velocity;
 	protected CollisionInfo _collisionInfo;
 
-	public BoxCollider2D platform;
-
     // Monobehaviour Methods
     private void Awake() {
         PhysicsMaterial2D fmat = new PhysicsMaterial2D("Smooth");
@@ -63,8 +61,6 @@ public class CustomPhysicsObject : MonoBehaviour
 
 		Physics2D.queriesHitTriggers = false;
         _rb.gravityScale = 0;
-
-		Physics2D.IgnoreCollision(_col, platform);
     }
 
 	private void FixedUpdate() {
@@ -74,12 +70,14 @@ public class CustomPhysicsObject : MonoBehaviour
         _velocity.x = Input.GetAxisRaw("Horizontal") * 4f;
         _velocity += Physics2D.gravity * Time.fixedDeltaTime;
         
-        if(Input.GetKey(KeyCode.Space)) _velocity.y = 10f;
-
+        if(Input.GetButton("Jump")) _velocity.y = 10f;
+		
         Vector2 deltaVelocity = _velocity * Time.deltaTime;
 
-        //if(_velocity.y > 0) CheckVerticalCollision(ref deltaVelocity, false);
+        if(_velocity.y > 0) CheckVerticalCollision(ref deltaVelocity, false);
         if(_velocity.y <= 0) CheckVerticalCollision(ref deltaVelocity, true);
+
+		if (_collisionInfo.slidingDownSlope) Debug.Log("Sliding down slope");
 
         CheckHorizontalCollision(ref deltaVelocity, true);
         CheckHorizontalCollision(ref deltaVelocity, false);
@@ -113,7 +111,6 @@ public class CustomPhysicsObject : MonoBehaviour
 
 		_col.size = new Vector2(_col.size.x, _correctedColliderHeight - colliderOffset);
 		_col.offset = new Vector2(0, _col.offset.y + colliderOffset / 2f);
-		Debug.Log(_correctedColliderHeight);
 	}
 
 	private void CheckHorizontalCollision(ref Vector2 refVelocity, bool left) {
@@ -135,17 +132,19 @@ public class CustomPhysicsObject : MonoBehaviour
                 float hitAngle = Vector2.Angle(transform.up, hit.normal);
                 if(hitAngle < _maxSlopeAngle) continue;
 
-                float maxMoveDistance = (_bodyWidth - _feetWidth) / 2f + _skinWidth;
+				// Set the body width
+				float bodyWith = (_bodyWidth - _feetWidth) / 2f + _skinWidth;
+				float anglePercentage = Mathf.Clamp01((hitAngle - _maxSlopeAngle) / (90f - _maxSlopeAngle));
+				bodyWith -= Mathf.Lerp((_bodyWidth - _feetWidth) / 2f, 0, anglePercentage);
 
-                if (hit.distance > maxMoveDistance) {
-                    refVelocity.x = left ? Mathf.Clamp(refVelocity.x, -hit.distance + maxMoveDistance, float.MaxValue) : 
-                                           Mathf.Clamp(refVelocity.x, float.MinValue, hit.distance - maxMoveDistance);
+				// Limit the x velocity
+				if (hit.distance >= bodyWith) {
+                    refVelocity.x = left ? Mathf.Clamp(refVelocity.x, -hit.distance + bodyWith, float.MaxValue) : 
+                                           Mathf.Clamp(refVelocity.x, float.MinValue, hit.distance - bodyWith);
                 } else {
-                    refVelocity.x = left ? Mathf.Clamp(refVelocity.x, Mathf.Lerp(0, -hit.distance + maxMoveDistance, Time.fixedDeltaTime * _fixSpeed), float.MaxValue) : 
-                                           Mathf.Clamp(refVelocity.x, float.MinValue, Mathf.Lerp(0, hit.distance - maxMoveDistance, Time.fixedDeltaTime * _fixSpeed));
+                    refVelocity.x = left ? Mathf.Clamp(refVelocity.x, Mathf.Lerp(0, -hit.distance + bodyWith, Time.fixedDeltaTime * _fixSpeed), float.MaxValue) : 
+                                           Mathf.Clamp(refVelocity.x, float.MinValue, Mathf.Lerp(0, hit.distance - bodyWith, Time.fixedDeltaTime * _fixSpeed));
                 }
-
-				// TODO: add groundnormal to velocity
 
 				if (left) _collisionInfo.collidingLeft = true;
 				if (!left) _collisionInfo.collidingRight = true;
@@ -170,16 +169,23 @@ public class CustomPhysicsObject : MonoBehaviour
 			RaycastHit2D groundHit = Physics2D.Raycast(transform.position + transform.up * _skinWidth, -transform.up, rayLength, _layerMask);
 			if (groundHit)
 			{
-				refVelocity.y = Mathf.Clamp(refVelocity.y, -(groundHit.distance - _skinWidth), groundHit.distance - _skinWidth);
-				_velocity.y = 0;
-
 				Vector2 groundNormal = new Vector2(groundHit.normal.y, -groundHit.normal.x);
 				_collisionInfo.groundNormal = groundNormal;
+				float groundAngle = Vector2.Angle(Vector2.up, groundHit.normal);
+				if (groundAngle > _maxSlopeAngle) _collisionInfo.slidingDownSlope = true;
 				_collisionInfo.collidingBelow = true;
+
+				if (!_collisionInfo.slidingDownSlope)
+				{
+					refVelocity.y = Mathf.Clamp(refVelocity.y, -(groundHit.distance - _skinWidth), groundHit.distance - _skinWidth);
+					_velocity.y = 0;
+				}
 
 				return;
 			}
 		}
+
+		//TODO: add gravity to current slope normal y value
 
 		// Check collision
 		float differencePerRay = (_feetWidth - _skinWidth * 2) / (_verticalRayCount - 1);
@@ -235,7 +241,16 @@ public class CustomPhysicsObject : MonoBehaviour
 				{
 					Vector2 groundNormal = new Vector2(hit.normal.y, -hit.normal.x);
 					_collisionInfo.groundNormal = groundNormal;
-					_velocity.y = 0;
+					float groundAngle = Vector2.Angle(Vector2.up, hit.normal);
+					if (groundAngle > _maxSlopeAngle) _collisionInfo.slidingDownSlope = true;
+
+					if (!_collisionInfo.slidingDownSlope)
+					{
+						refVelocity.y = Mathf.Clamp(refVelocity.y, -(hit.distance - _skinWidth), hit.distance - _skinWidth);
+						_velocity.y = 0;
+					}
+
+					_collisionInfo.collidingBelow = true;
 				}
 
 				if (bottom) _collisionInfo.collidingBelow = true;
@@ -253,11 +268,16 @@ public class CustomPhysicsObject : MonoBehaviour
 			RaycastHit2D groundHit = Physics2D.Raycast(transform.position + transform.up * _skinWidth, -transform.up, rayLength, _layerMask);
 			if (groundHit)
 			{
-				refVelocity.y = Mathf.Clamp(refVelocity.y, -(groundHit.distance - _skinWidth), groundHit.distance - _skinWidth);
-				_velocity.y = 0;
-
 				Vector2 groundNormal = new Vector2(groundHit.normal.y, -groundHit.normal.x);
 				_collisionInfo.groundNormal = groundNormal;
+				float groundAngle = Vector2.Angle(Vector2.up, groundHit.normal);
+				if (groundAngle > _maxSlopeAngle) _collisionInfo.slidingDownSlope = true;
+
+				if (!_collisionInfo.slidingDownSlope)
+				{
+					refVelocity.y = Mathf.Clamp(refVelocity.y, -(groundHit.distance - _skinWidth), groundHit.distance - _skinWidth);
+					_velocity.y = 0;
+				}
 
 				_collisionInfo.collidingBelow = true;
 
@@ -270,7 +290,7 @@ public class CustomPhysicsObject : MonoBehaviour
     private void OnDrawGizmos() {
         // draw physics direction arrow
         Gizmos.color = new Color(1f, 0.4f, 0);
-		//DrawArrow(transform.position + transform.up * transform.lossyScale.y * 0.5f, Physics2D.gravity);
+		// DrawArrow(transform.position + transform.up * transform.lossyScale.y * 0.5f, Physics2D.gravity);
 
 		// draw feet and body width
 		float colHeight = Application.isPlaying ? _colliderHeight : GetComponent<BoxCollider2D>().size.y;
@@ -297,10 +317,12 @@ public class CustomPhysicsObject : MonoBehaviour
 		public bool collidingUp;
 
 		public Vector2 groundNormal;
+		public bool slidingDownSlope;
 
 		public void Reset()
 		{
 			collidingLeft = collidingRight = collidingBelow = collidingUp = false;
+			slidingDownSlope = false;
 			groundNormal = new Vector2(0, 1);
 		}
 	}
